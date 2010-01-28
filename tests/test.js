@@ -14,7 +14,11 @@ t.get('test').addErrback(function(data) {
 }).addCallback(function(data) {
   sys.puts('success');
 });;
-t.set('test', 'abcd123', 20).addCallback(function(data) {
+t.set('test', '123', 20).addCallback(function(data) {
   t.get('test').addCallback(function(data) {
-	  sys.puts(data);
-});});
+    sys.puts(data);
+    t.incr('test', 3).addCallback(function(data) {
+      sys.puts('after incr: ' + data);
+    });
+  });
+});

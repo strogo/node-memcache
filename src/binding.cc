@@ -50,8 +50,9 @@ class Connection : EventEmitter {
     connect_symbol = NODE_PSYMBOL("connect");
 
     NODE_SET_PROTOTYPE_METHOD(t, "addServer", AddServer);
-    NODE_SET_PROTOTYPE_METHOD(t, "rget", Get);
-    NODE_SET_PROTOTYPE_METHOD(t, "rset", Set);
+    NODE_SET_PROTOTYPE_METHOD(t, "_get", _Get);
+    NODE_SET_PROTOTYPE_METHOD(t, "_set", _Set);
+    NODE_SET_PROTOTYPE_METHOD(t, "_incr", _Incr);
     NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
@@ -69,7 +70,7 @@ class Connection : EventEmitter {
     return true;
   }
 
-  void Get(const char *key, int key_len)
+  void _Get(const char *key, int key_len)
   {
     size_t value;
     uint32_t flags;
@@ -81,7 +82,7 @@ class Connection : EventEmitter {
     }
   }
 
-  void Set(const char *key, int key_len, const char *data, int data_len,
+  void _Set(const char *key, int key_len, const char *data, int data_len,
       time_t expiration)
   {
     memcached_attach_fd(key, key_len);
@@ -92,12 +93,13 @@ class Connection : EventEmitter {
     }
   }
 
-  void Incr(const char *key, int key_len, uint32_t offset)
+  void _Incr(const char *key, int key_len, uint32_t offset)
   {
     uint64_t value;
 
     memcached_attach_fd(key, key_len);
     rc = memcached_increment(&memc_, key, key_len, offset, &value);
+    pdebug("rc: %s\n", memcached_strerror(NULL, rc));
     if (rc == MEMCACHED_SUCCESS) {
       mval_.type = MVAL_LONG;
       mval_.u.l = value;
@@ -156,7 +158,7 @@ class Connection : EventEmitter {
     return Undefined();
   }
 
-  static Handle<Value> Get(const Arguments &args)
+  static Handle<Value> _Get(const Arguments &args)
   {
     HandleScope scope;
 
@@ -167,12 +169,12 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
 
-    c->Get(*key, key.length());
+    c->_Get(*key, key.length());
 
     return Undefined();
   }
 
-  static Handle<Value> Set(const Arguments &args)
+  static Handle<Value> _Set(const Arguments &args)
   {
     HandleScope scope;
 
@@ -185,7 +187,24 @@ class Connection : EventEmitter {
     String::Utf8Value value(args[1]->ToString());
     uint32_t expiration = args[2]->Int32Value();
 
-    c->Set(*key, key.length(), *value, value.length(), expiration);
+    c->_Set(*key, key.length(), *value, value.length(), expiration);
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Incr(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    uint32_t offset = args[1]->Int32Value();
+
+    c->_Incr(*key, key.length(), offset);
 
     return Undefined();
   }
