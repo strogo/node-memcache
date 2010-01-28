@@ -1,90 +1,142 @@
 // Copyright 2010 Vanilla Hsu<vanilla@FreeBSD.org>
 
-#include <v8.h>
-#include <node.h>
-#include <node_object_wrap.h>
-#include <node_events.h>
 #include <libmemcached/memcached.h>
-#include <string>
+#include <node.h>
+#include <node_events.h>
 
 #define DEBUGMODE 1
 #define pdebug(...) do{if(DEBUGMODE)printf(__VA_ARGS__);}while(0)
 #define THROW_BAD_ARGS \
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
+typedef enum {
+  MEMC_GET,
+  MEMC_SET,
+  MEMC_INCR,
+  MEMC_DECR,
+  MEMC_ADD,
+  MEMC_REPLACE,
+  MEMC_PREPEND,
+  MEMC_APPEND,
+  MEMC_CAS,
+  MEMC_REMOVE,
+  MEMC_FLUSH
+} memc_type;
+
+typedef enum {
+  MVAL_STRING = 1,
+  MVAL_LONG,
+  MVAL_BOOL
+} mval_type;
+
+typedef struct {
+  mval_type type;
+  union {
+    char *c;
+    uint64_t l;
+    int b;
+  } u;
+} mval;
+
 using namespace v8;
 using namespace node;
 
 static Persistent<String> ready_symbol;
 static Persistent<String> result_symbol;
+static Persistent<String> close_symbol;
+static Persistent<String> connect_symbol;
 
 class Connection : EventEmitter {
  public:
-  static void Initialize(Handle<Object> target)
+  static void
+  Initialize(Handle<Object> target)
   {
     HandleScope scope;
 
-    Local<FunctionTemplate> t = FunctionTemplate::New(Connection::New);
+    Local<FunctionTemplate> t = FunctionTemplate::New(New);
+
     t->Inherit(EventEmitter::constructor_template);
     t->InstanceTemplate()->SetInternalFieldCount(1);
 
     ready_symbol = NODE_PSYMBOL("ready");
     result_symbol = NODE_PSYMBOL("result");
+    close_symbol = NODE_PSYMBOL("close");
+    connect_symbol = NODE_PSYMBOL("connect");
 
-    NODE_SET_PROTOTYPE_METHOD(t, "addServer", addServer);
-    NODE_SET_PROTOTYPE_METHOD(t, "get", get);
-    NODE_SET_PROTOTYPE_METHOD(t, "set", set);
-    NODE_SET_PROTOTYPE_METHOD(t, "incr", incr);
-    NODE_SET_PROTOTYPE_METHOD(t, "decr", decr);
-    NODE_SET_PROTOTYPE_METHOD(t, "add", add);
-    NODE_SET_PROTOTYPE_METHOD(t, "replace", replace);
-    NODE_SET_PROTOTYPE_METHOD(t, "prepend", prepend);
-    NODE_SET_PROTOTYPE_METHOD(t, "append", append);
-    NODE_SET_PROTOTYPE_METHOD(t, "cas", cas);
-    NODE_SET_PROTOTYPE_METHOD(t, "remove", remove);
-    NODE_SET_PROTOTYPE_METHOD(t, "flush", flush);
+    NODE_SET_PROTOTYPE_METHOD(t, "addServer", AddServer);
+    NODE_SET_PROTOTYPE_METHOD(t, "rget", Get);
+    NODE_SET_PROTOTYPE_METHOD(t, "rset", Set);
+    NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
   }
 
-  bool addServer(const char *server_name, int32_t port)
+  bool AddServer(const char *hostname, int port)
   {
-    memcached_return rc;
-
-    rc = memcached_server_add(&memc_, server_name, port);
-
-    if (rc == MEMCACHED_SUCCESS) {
-      memcached_behavior_set(&memc_, MEMCACHED_BEHAVIOR_NO_BLOCK, 1);
-      return true;
-    }
-
-    return false;
-  }
-
-  bool get(const char *key, int32_t key_len)
-  {
-    uint32_t fd, flags;
-
-    fd = memcached_socket(key, key_len);
-    if (fd == -1)
+    rc = memcached_server_add(&memc_, hostname, port);
+    if (rc != MEMCACHED_SUCCESS)
       return false;
 
-    ev_io_set(&write_watcher_, fd, EV_WRITE);
-    ev_io_start(EV_DEFAULT_ &write_watcher_);
+    memcached_behavior_set(&memc_, MEMCACHED_BEHAVIOR_NO_BLOCK, 1);
+    memcached_version(&memc_);
 
-    output = memcached_get(&memc_, key, key_len,
-        &output_len, &flags, &rc);
-    if (output != NULL)
-      return true;
-
-    return false;
-  }
-
-  bool set(const char *key, int32_t key_len, const char *data, int32_t data_len, time_t expiration)
-  {
     return true;
   }
-        
+
+  void Get(const char *key, int key_len)
+  {
+    size_t value;
+    uint32_t flags;
+
+    memcached_attach_fd(key, key_len);
+    mval_.u.c = memcached_get(&memc_, key, key_len, &value, &flags, &rc);
+    if (mval_.u.c != NULL) {
+      mval_.type = MVAL_STRING;
+    }
+  }
+
+  void Set(const char *key, int key_len, const char *data, int data_len,
+      time_t expiration)
+  {
+    memcached_attach_fd(key, key_len);
+    rc = memcached_set(&memc_, key, key_len, data, data_len, expiration, 0);
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_BOOL;
+      mval_.u.b = 1;
+    }
+  }
+
+  void Incr(const char *key, int key_len, uint32_t offset)
+  {
+    uint64_t value;
+
+    memcached_attach_fd(key, key_len);
+    rc = memcached_increment(&memc_, key, key_len, offset, &value);
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_LONG;
+      mval_.u.l = value;
+    }
+  }
+
+  void Close(Local<Value> exception = Local<Value>())
+  {
+    HandleScope scope;
+
+    ev_io_stop(EV_DEFAULT_ &read_watcher_);
+    ev_io_stop(EV_DEFAULT_ &write_watcher_);
+
+    if (exception.IsEmpty()) {
+      Emit(close_symbol, 0, NULL);
+    } else {
+      Emit(close_symbol, 1, &exception);
+    }
+  }
+
+  const char *ErrorMessage()
+  {
+    return memcached_strerror(NULL, rc);
+  }
+
  protected:
   static Handle<Value> New(const Arguments &args)
   {
@@ -96,7 +148,7 @@ class Connection : EventEmitter {
     return args.This();
   }
 
-  static Handle<Value> addServer(const Arguments &args)
+  static Handle<Value> AddServer(const Arguments &args)
   {
     HandleScope scope;
 
@@ -107,13 +159,18 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value server_name(args[0]->ToString());
     int32_t port = args[1]->Int32Value();
+    bool r = c->AddServer(*server_name, port);
 
-    bool ret = c->addServer(*server_name, port);
-  
-    return scope.Close(Boolean::New(ret));
+    if (!r) {
+      return ThrowException(Exception::Error(
+            String::New(c->ErrorMessage())));
+    }
+
+    c->Emit(connect_symbol, 0, NULL);
+    return Undefined();
   }
 
-  static Handle<Value> get(const Arguments &args)
+  static Handle<Value> Get(const Arguments &args)
   {
     HandleScope scope;
 
@@ -124,212 +181,77 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
 
-    c->get(*key, key.length());
-  
+    c->Get(*key, key.length());
+
     return Undefined();
   }
 
-  static Handle<Value> set(const Arguments &args)
+  static Handle<Value> Set(const Arguments &args)
   {
     HandleScope scope;
 
-    if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString()
-        || !args[2]->IsInt32()) {
+    if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString() || !args[2]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
-    int32_t expiration = args[2]->Int32Value();
+    String::Utf8Value value(args[1]->ToString());
+    uint32_t expiration = args[2]->Int32Value();
 
-    bool ret;
-    if (ret == true) {
-      return scope.Close(Boolean::New(ret));
-    }
+    c->Set(*key, key.length(), *value, value.length(), expiration);
 
     return Undefined();
   }
 
-  static Handle<Value> incr(const Arguments &args)
+  static Handle<Value> Close(const Arguments &args)
   {
     HandleScope scope;
-    uint64_t value;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
-      return THROW_BAD_ARGS;
-    }
-
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    String::Utf8Value key(args[0]->ToString());
-    std::string nk(*key);
-    int32_t offset = args[1]->Int32Value();
-
-    bool ret;
-    if (ret == true) {
-      return scope.Close(Integer::New(value));
-    }
-
+    c->Close();
     return Undefined();
   }
-
-  static Handle<Value> decr(const Arguments &args)
-  {
-    HandleScope scope;
-    uint64_t value;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    String::Utf8Value key(args[0]->ToString());
-    std::string nk(*key);
-    int32_t offset = args[1]->Int32Value();
-
-    bool ret;
-    if (ret == true) {
-      return scope.Close(Integer::New(value));
-    }
-
-    return Undefined();
-  }
-
-  static Handle<Value> add(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> replace(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> prepend(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> append(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> cas(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> remove(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    String::Utf8Value key(args[0]->ToString());
-    int32_t expiration = args[1]->Int32Value();
-
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
-  static Handle<Value> flush(const Arguments &args)
-  {
-    HandleScope scope;
-
-    if (args.Length() < 1 || !args[0]->IsInt32()) {
-      return THROW_BAD_ARGS;
-    }
-
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
-    int32_t expiration = args[0]->Int32Value();
-
-    bool ret;
-    if (ret == true)
-      return scope.Close(Boolean::New(ret));
-
-    return Undefined();
-  }
-
 
   void Event(int revents)
   {
-    if (revents & EV_WRITE) {
-      if (output_len) {
-        EmitResult();
-      } else
-        ev_io_stop(EV_DEFAULT_ &write_watcher_);
+    Handle<Value> result;
 
-      Emit(ready_symbol, 0, NULL);
+    if (revents & EV_ERROR) {
+      Close();
+      return;
     }
-  
+
     if (revents & EV_READ) {
       return;
     }
 
-    if (revents & EV_ERROR) {
-      pdebug("hit error\n");
+    if (revents & EV_WRITE) {
+      switch (mval_.type) {
+        case MVAL_STRING:
+          result = String::New(mval_.u.c);
+          free(mval_.u.c);
+          mval_.type = (mval_type)0;
+          rc = (memcached_return_t)-1;
+          break;
+        case MVAL_LONG:
+          result = Integer::New(mval_.u.l);
+          mval_.u.l = 0;
+          mval_.type = (mval_type)0;
+          rc = (memcached_return_t)-1;
+          break;
+        case MVAL_BOOL:
+          result = Boolean::New(mval_.u.b);
+          mval_.u.b = 0;
+          mval_.type = (mval_type)0;
+          rc = (memcached_return_t)-1;
+          break;
+        default:
+          result = Exception::Error(String::New(memcached_strerror(NULL, rc)));
+      }
+
+      ev_io_stop(EV_DEFAULT_ &write_watcher_);
+      Emit(result_symbol, 1, &result);
+      Emit(ready_symbol, 0, NULL);
     }
   }
 
@@ -337,19 +259,13 @@ class Connection : EventEmitter {
     HandleScope scope;
 
     memcached_create(&memc_);
-
-    output = NULL;
-    output_len = 0;
+    rc = (memcached_return_t)-1;
+    mval_.type = (mval_type)0;
+    
     ev_init(&read_watcher_, io_event);
     read_watcher_.data = this;
     ev_init(&write_watcher_, io_event);
     write_watcher_.data = this;
-  }
-
-  ~Connection() {
-    ev_io_stop(EV_DEFAULT_ &write_watcher_);
-    ev_io_stop(EV_DEFAULT_ &read_watcher_);
-    memcached_free(&memc_);
   }
 
  private:
@@ -359,55 +275,44 @@ class Connection : EventEmitter {
     c->Event(revents);
   }
 
-  void EmitResult()
+  void memcached_attach_fd(const char *key, int key_len)
   {
-    Local<Value> exception;
-    Local<Value> result;
-
-    switch(rc) {
-      case MEMCACHED_SUCCESS:
-        result = String::New(output);
-        free(output);
-        output_len = 0;
-        Emit(result_symbol, 1, &result);
-        break;
-      default:
-        exception = Exception::Error(String::New(memcached_strerror(NULL, rc)));
-        Emit(result_symbol, 1, &exception);
-    }
-  }
-
-  int memcached_socket(const char *key, int key_len)
-  {
-    int server;
-    memcached_return rc;
+    int server, fd;
 
     server = memcached_generate_hash(&memc_, key, key_len);
-    if (memc_.hosts[server].cursor_active)
-      return memc_.hosts[server].fd;
+    if (memc_.hosts[server].fd == -1)
+      memcached_version(&memc_);
 
-    memc_.hosts[server].write_buffer_offset = 1;
-    rc = memcached_flush_buffers(&memc_);
-    if (rc != MEMCACHED_SUCCESS)
-      return -1;
+    fd = memc_.hosts[server].fd;
 
-    memc_.hosts[server].cursor_active++;
-    return memc_.hosts[server].fd;
+    ev_io_set(&read_watcher_, fd, EV_READ);
+    ev_io_set(&write_watcher_, fd, EV_WRITE);
+    ev_io_start(EV_DEFAULT_ &write_watcher_);
   }
 
   memcached_st memc_;
   ev_io read_watcher_;
   ev_io write_watcher_;
-
-  memcached_return rc;
-  size_t output_len;
-  char *output;
+  mval mval_;
+  memcached_return_t rc;
 };
 
 extern "C" void
 init(Handle<Object> target)
 {
   HandleScope scope;
+
+  NODE_DEFINE_CONSTANT(target, MEMC_GET);
+  NODE_DEFINE_CONSTANT(target, MEMC_SET);
+  NODE_DEFINE_CONSTANT(target, MEMC_INCR);
+  NODE_DEFINE_CONSTANT(target, MEMC_DECR);
+  NODE_DEFINE_CONSTANT(target, MEMC_ADD);
+  NODE_DEFINE_CONSTANT(target, MEMC_REPLACE);
+  NODE_DEFINE_CONSTANT(target, MEMC_APPEND);
+  NODE_DEFINE_CONSTANT(target, MEMC_PREPEND);
+  NODE_DEFINE_CONSTANT(target, MEMC_CAS);
+  NODE_DEFINE_CONSTANT(target, MEMC_REMOVE);
+  NODE_DEFINE_CONSTANT(target, MEMC_FLUSH);
 
   Connection::Initialize(target);
 }

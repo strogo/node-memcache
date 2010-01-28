@@ -9,21 +9,12 @@ var sys = require('sys'),
     assert = require('assert');
 
 t = memcache.createConnection({server: '127.0.0.1', port: 7788});
-//t.setServers("127.0.0.1:7788");
-//sys.puts("addServer: " + t.addServer("127.0.0.1", 7788));
-//t.set("test", "abc", 20);
-//t.addListener("ready", function() {
-//	sys.puts("here");
-//});
-//t.addListener("result", function(msg) {
-//	sys.puts(msg);
-//});
-t.get('test');
-//t.append('test', 'def');
-//sys.puts(t.get('test'));
-//t.prepend('test', '123');
-//sys.puts(t.get('test'));
-//t.remove('test', 0);
-//sys.puts(t.get('test'));
-//memcache.test("test");
-//memcache.test(function(aa) { sys.puts("test; blah blah"); sys.puts(aa);});
+t.get('test').addErrback(function(data) {
+  sys.puts('error');
+}).addCallback(function(data) {
+  sys.puts('success');
+});;
+t.set('test', 'abcd123', 20).addCallback(function(data) {
+  t.get('test').addCallback(function(data) {
+	  sys.puts(data);
+});});
