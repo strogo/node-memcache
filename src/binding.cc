@@ -10,20 +10,6 @@
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
 typedef enum {
-  MEMC_GET,
-  MEMC_SET,
-  MEMC_INCR,
-  MEMC_DECR,
-  MEMC_ADD,
-  MEMC_REPLACE,
-  MEMC_PREPEND,
-  MEMC_APPEND,
-  MEMC_CAS,
-  MEMC_REMOVE,
-  MEMC_FLUSH
-} memc_type;
-
-typedef enum {
   MVAL_STRING = 1,
   MVAL_LONG,
   MVAL_BOOL
@@ -301,18 +287,6 @@ extern "C" void
 init(Handle<Object> target)
 {
   HandleScope scope;
-
-  NODE_DEFINE_CONSTANT(target, MEMC_GET);
-  NODE_DEFINE_CONSTANT(target, MEMC_SET);
-  NODE_DEFINE_CONSTANT(target, MEMC_INCR);
-  NODE_DEFINE_CONSTANT(target, MEMC_DECR);
-  NODE_DEFINE_CONSTANT(target, MEMC_ADD);
-  NODE_DEFINE_CONSTANT(target, MEMC_REPLACE);
-  NODE_DEFINE_CONSTANT(target, MEMC_APPEND);
-  NODE_DEFINE_CONSTANT(target, MEMC_PREPEND);
-  NODE_DEFINE_CONSTANT(target, MEMC_CAS);
-  NODE_DEFINE_CONSTANT(target, MEMC_REMOVE);
-  NODE_DEFINE_CONSTANT(target, MEMC_FLUSH);
 
   Connection::Initialize(target);
 }
