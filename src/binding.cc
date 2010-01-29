@@ -66,6 +66,8 @@ class Connection : EventEmitter {
     NODE_SET_PROTOTYPE_METHOD(t, "_prepend", _Prepend);
     NODE_SET_PROTOTYPE_METHOD(t, "_append", _Append);
     NODE_SET_PROTOTYPE_METHOD(t, "_cas", _Cas);
+    NODE_SET_PROTOTYPE_METHOD(t, "_remove", _Remove);
+    NODE_SET_PROTOTYPE_METHOD(t, "flush", Flush);
     NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
@@ -95,11 +97,11 @@ class Connection : EventEmitter {
     }
   }
 
-  void _Set(const char *key, int key_len, const char *data, int data_len,
+  void _Set(const char *key, int key_len, const char *value, int value_len,
       time_t expiration)
   {
     memcached_attach_fd(key, key_len);
-    rc = memcached_set(&memc_, key, key_len, data, data_len, expiration, 0);
+    rc = memcached_set(&memc_, key, key_len, value, value_len, expiration, 0);
     if (rc == MEMCACHED_SUCCESS) {
       mval_.type = MVAL_BOOL;
       mval_.u.b = 1;
@@ -131,20 +133,20 @@ class Connection : EventEmitter {
   }
 
   void _Cmd(_cmd cmd, const char *key, int key_len,
-      const char *data, int data_len)
+      const char *value, int value_len)
   {
     switch (cmd) {
       case _ADD:
-        rc = memcached_add(&memc_, key, key_len, data, data_len, 0, 0);
+        rc = memcached_add(&memc_, key, key_len, value, value_len, 0, 0);
         break;
       case _REPLACE:
-        rc = memcached_replace(&memc_, key, key_len, data, data_len, 0 ,0);
+        rc = memcached_replace(&memc_, key, key_len, value, value_len, 0 ,0);
         break;
       case _PREPEND:
-        rc = memcached_prepend(&memc_, key, key_len, data, data_len, 0 ,0);
+        rc = memcached_prepend(&memc_, key, key_len, value, value_len, 0 ,0);
         break;
       case _APPEND:
-        rc = memcached_append(&memc_, key, key_len, data, data_len, 0 ,0);
+        rc = memcached_append(&memc_, key, key_len, value, value_len, 0 ,0);
         break;
       default:
         rc = (memcached_return_t) -1;
@@ -156,15 +158,33 @@ class Connection : EventEmitter {
     }
   }
 
-  void _Cas(const char *key, int key_len, const char *data, int data_len,
+  void _Cas(const char *key, int key_len, const char *value, int value_len,
       uint64_t cas_arg)
   {
     memcached_attach_fd(key, key_len);
-    rc = memcached_cas(&memc_, key, key_len, data, data_len, 0, 0, cas_arg);
+    rc = memcached_cas(&memc_, key, key_len, value, value_len, 0, 0, cas_arg);
     if (rc == MEMCACHED_SUCCESS) {
       mval_.type = MVAL_BOOL;
       mval_.u.b = 1;
     }
+  }
+
+  void _Remove(const char *key, size_t key_len, time_t expiration = 0)
+  {
+    memcached_attach_fd(key, key_len);
+    rc = memcached_delete(&memc_, key, key_len, expiration);
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_BOOL;
+      mval_.u.b = 1;
+    }
+  }
+
+  bool Flush(time_t expiration)
+  {
+    rc = memcached_flush(&memc_, expiration);
+    if (rc == MEMCACHED_SUCCESS)
+      return true;
+    return false;
   }
 
   void Close(Local<Value> exception = Local<Value>())
@@ -297,9 +317,9 @@ class Connection : EventEmitter {
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
+    String::Utf8Value value(args[1]->ToString());
 
-    c->_Cmd(_ADD, *key, key.length(), *data, data.length());
+    c->_Cmd(_ADD, *key, key.length(), *value, value.length());
 
     return Undefined();
   }
@@ -314,9 +334,9 @@ class Connection : EventEmitter {
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
+    String::Utf8Value value(args[1]->ToString());
 
-    c->_Cmd(_REPLACE, *key, key.length(), *data, data.length());
+    c->_Cmd(_REPLACE, *key, key.length(), *value, value.length());
 
     return Undefined();
   }
@@ -331,9 +351,9 @@ class Connection : EventEmitter {
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
+    String::Utf8Value value(args[1]->ToString());
 
-    c->_Cmd(_PREPEND, *key, key.length(), *data, data.length());
+    c->_Cmd(_PREPEND, *key, key.length(), *value, value.length());
 
     return Undefined();
   }
@@ -348,9 +368,9 @@ class Connection : EventEmitter {
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
+    String::Utf8Value value(args[1]->ToString());
 
-    c->_Cmd(_APPEND, *key, key.length(), *data, data.length());
+    c->_Cmd(_APPEND, *key, key.length(), *value, value.length());
 
     return Undefined();
   }
@@ -366,10 +386,45 @@ class Connection : EventEmitter {
 
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value data(args[1]->ToString());
+    String::Utf8Value value(args[1]->ToString());
     uint64_t cas_arg = args[2]->IntegerValue();
 
-    c->_Cas(*key, key.length(), *data, data.length(), cas_arg);
+    c->_Cas(*key, key.length(), *value, value.length(), cas_arg);
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Remove(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    time_t expiration = args[1]->Int32Value();
+
+    c->_Remove(*key, key.length(), expiration);
+
+    return Undefined();
+  }
+
+  static Handle<Value> Flush(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 1 || !args[0]->IsInt32()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    time_t expiration = args[0]->Int32Value();
+
+    bool ret = c->Flush(expiration);
+    if (ret)
+      c->Emit(ready_symbol, 0, NULL);
 
     return Undefined();
   }
