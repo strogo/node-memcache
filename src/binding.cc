@@ -10,6 +10,13 @@
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
 typedef enum {
+  _ADD,
+  _REPLACE,
+  _PREPEND,
+  _APPEND
+} _cmd;
+
+typedef enum {
   MVAL_STRING = 1,
   MVAL_LONG,
   MVAL_BOOL
@@ -54,6 +61,11 @@ class Connection : EventEmitter {
     NODE_SET_PROTOTYPE_METHOD(t, "_set", _Set);
     NODE_SET_PROTOTYPE_METHOD(t, "_incr", _Incr);
     NODE_SET_PROTOTYPE_METHOD(t, "_decr", _Decr);
+    NODE_SET_PROTOTYPE_METHOD(t, "_add", _Add);
+    NODE_SET_PROTOTYPE_METHOD(t, "_replace", _Replace);
+    NODE_SET_PROTOTYPE_METHOD(t, "_prepend", _Prepend);
+    NODE_SET_PROTOTYPE_METHOD(t, "_append", _Append);
+    NODE_SET_PROTOTYPE_METHOD(t, "_cas", _Cas);
     NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
@@ -115,6 +127,43 @@ class Connection : EventEmitter {
     if (rc == MEMCACHED_SUCCESS) {
       mval_.type = MVAL_LONG;
       mval_.u.l = value;
+    }
+  }
+
+  void _Cmd(_cmd cmd, const char *key, int key_len,
+      const char *data, int data_len)
+  {
+    switch (cmd) {
+      case _ADD:
+        rc = memcached_add(&memc_, key, key_len, data, data_len, 0, 0);
+        break;
+      case _REPLACE:
+        rc = memcached_replace(&memc_, key, key_len, data, data_len, 0 ,0);
+        break;
+      case _PREPEND:
+        rc = memcached_prepend(&memc_, key, key_len, data, data_len, 0 ,0);
+        break;
+      case _APPEND:
+        rc = memcached_append(&memc_, key, key_len, data, data_len, 0 ,0);
+        break;
+      default:
+        rc = (memcached_return_t) -1;
+    }
+
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_BOOL;
+      mval_.u.b = 1;
+    }
+  }
+
+  void _Cas(const char *key, int key_len, const char *data, int data_len,
+      uint64_t cas_arg)
+  {
+    memcached_attach_fd(key, key_len);
+    rc = memcached_cas(&memc_, key, key_len, data, data_len, 0, 0, cas_arg);
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_BOOL;
+      mval_.u.b = 1;
     }
   }
 
@@ -234,6 +283,93 @@ class Connection : EventEmitter {
     uint32_t offset = args[1]->Int32Value();
 
     c->_Decr(*key, key.length(), offset);
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Add(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    String::Utf8Value data(args[1]->ToString());
+
+    c->_Cmd(_ADD, *key, key.length(), *data, data.length());
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Replace(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    String::Utf8Value data(args[1]->ToString());
+
+    c->_Cmd(_REPLACE, *key, key.length(), *data, data.length());
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Prepend(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    String::Utf8Value data(args[1]->ToString());
+
+    c->_Cmd(_PREPEND, *key, key.length(), *data, data.length());
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Append(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    String::Utf8Value data(args[1]->ToString());
+
+    c->_Cmd(_APPEND, *key, key.length(), *data, data.length());
+
+    return Undefined();
+  }
+
+  static Handle<Value> _Cas(const Arguments &args)
+  {
+    HandleScope scope;
+
+    if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString() ||
+        args[2]->IsNumber()) {
+      return THROW_BAD_ARGS;
+    }
+
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+    String::Utf8Value key(args[0]->ToString());
+    String::Utf8Value data(args[1]->ToString());
+    uint64_t cas_arg = args[2]->IntegerValue();
+
+    c->_Cas(*key, key.length(), *data, data.length(), cas_arg);
 
     return Undefined();
   }
