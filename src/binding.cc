@@ -16,6 +16,20 @@ typedef enum {
   _APPEND
 } _cmd;
 
+enum _type {
+  MEMC_GET,
+  MEMC_SET,
+  MEMC_INCR,
+  MEMC_DECR,
+  MEMC_ADD,
+  MEMC_REPLACE,
+  MEMC_APPEND,
+  MEMC_PREPEND,
+  MEMC_CAS,
+  MEMC_REMOVE,
+  MEMC_FLUSH
+};
+
 typedef enum {
   MVAL_STRING = 1,
   MVAL_LONG,
@@ -67,7 +81,7 @@ class Connection : EventEmitter {
     NODE_SET_PROTOTYPE_METHOD(t, "_append", _Append);
     NODE_SET_PROTOTYPE_METHOD(t, "_cas", _Cas);
     NODE_SET_PROTOTYPE_METHOD(t, "_remove", _Remove);
-    NODE_SET_PROTOTYPE_METHOD(t, "flush", Flush);
+    NODE_SET_PROTOTYPE_METHOD(t, "_flush", _Flush);
     NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
@@ -179,12 +193,14 @@ class Connection : EventEmitter {
     }
   }
 
-  bool Flush(time_t expiration)
+  void _Flush(time_t expiration)
   {
+    memcached_attach_fd(NULL, 0);
     rc = memcached_flush(&memc_, expiration);
-    if (rc == MEMCACHED_SUCCESS)
-      return true;
-    return false;
+    if (rc == MEMCACHED_SUCCESS) {
+      mval_.type = MVAL_BOOL;
+      mval_.u.b = 1;
+    }
   }
 
   void Close(Local<Value> exception = Local<Value>())
@@ -411,7 +427,7 @@ class Connection : EventEmitter {
     return Undefined();
   }
 
-  static Handle<Value> Flush(const Arguments &args)
+  static Handle<Value> _Flush(const Arguments &args)
   {
     HandleScope scope;
 
@@ -422,9 +438,7 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     time_t expiration = args[0]->Int32Value();
 
-    bool ret = c->Flush(expiration);
-    if (ret)
-      c->Emit(ready_symbol, 0, NULL);
+    c->_Flush(expiration);
 
     return Undefined();
   }
@@ -504,7 +518,11 @@ class Connection : EventEmitter {
   {
     int server, fd;
 
-    server = memcached_generate_hash(&memc_, key, key_len);
+    if (key == NULL || key_len == 0)
+      server = memc_.number_of_hosts - 1;
+    else
+      server = memcached_generate_hash(&memc_, key, key_len);
+
     if (memc_.hosts[server].fd == -1)
       memcached_version(&memc_);
 
@@ -526,6 +544,18 @@ extern "C" void
 init(Handle<Object> target)
 {
   HandleScope scope;
+
+  NODE_DEFINE_CONSTANT(target, MEMC_GET);
+  NODE_DEFINE_CONSTANT(target, MEMC_SET);
+  NODE_DEFINE_CONSTANT(target, MEMC_INCR);
+  NODE_DEFINE_CONSTANT(target, MEMC_DECR);
+  NODE_DEFINE_CONSTANT(target, MEMC_ADD);
+  NODE_DEFINE_CONSTANT(target, MEMC_REPLACE);
+  NODE_DEFINE_CONSTANT(target, MEMC_APPEND);
+  NODE_DEFINE_CONSTANT(target, MEMC_PREPEND);
+  NODE_DEFINE_CONSTANT(target, MEMC_CAS);
+  NODE_DEFINE_CONSTANT(target, MEMC_REMOVE);
+  NODE_DEFINE_CONSTANT(target, MEMC_FLUSH);
 
   Connection::Initialize(target);
 }
