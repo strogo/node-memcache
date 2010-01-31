@@ -94,7 +94,9 @@ class Connection : EventEmitter {
       return false;
 
     memcached_behavior_set(&memc_, MEMCACHED_BEHAVIOR_NO_BLOCK, 1);
-    memcached_version(&memc_);
+    rc = memcached_version(&memc_);
+    if (rc != MEMCACHED_SUCCESS)
+      return false;
 
     return true;
   }
