@@ -9,16 +9,22 @@ var sys = require('sys'),
     assert = require('assert');
 
 t = memcache.createConnection({server: '127.0.0.1', port: 7788});
-t.get('test').addErrback(function(data) {
-  sys.puts('error');
-}).addCallback(function(data) {
-  sys.puts('success');
-});;
-t.set('test', '123', 20).addCallback(function(data) {
-  t.get('test').addCallback(function(data) {
-    sys.puts(data);
-    t.incr('test', 3).addCallback(function(data) {
-      sys.puts('after incr: ' + data);
+t.get('test', function(err, data) {
+  if (err) {
+    sys.puts('error');
+  } else {
+    sys.puts('success');
+  }
+});
+
+sys.puts(t.distribution);
+t.distribution = memcache.Dist_Type.RANDOM;
+sys.puts(t.distribution);
+t.set('test', '123', 20, function(err, data) {
+  t.get('test', function(err1, data1) {
+    sys.puts(data1);
+    t.incr('test', 3, function(err2, data2) {
+      sys.puts('after incr: ' + data2);
     });
   });
 });

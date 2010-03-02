@@ -52,23 +52,24 @@ static Persistent<String> ready_symbol;
 static Persistent<String> result_symbol;
 static Persistent<String> close_symbol;
 static Persistent<String> connect_symbol;
+static Persistent<String> distribution_symbol;
 
 class Connection : EventEmitter {
  public:
   static void
   Initialize(Handle<Object> target)
   {
-    HandleScope scope;
-
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
 
     t->Inherit(EventEmitter::constructor_template);
     t->InstanceTemplate()->SetInternalFieldCount(1);
+    t->SetClassName(String::NewSymbol("Connection"));
 
     ready_symbol = NODE_PSYMBOL("ready");
     result_symbol = NODE_PSYMBOL("result");
     close_symbol = NODE_PSYMBOL("close");
     connect_symbol = NODE_PSYMBOL("connect");
+    distribution_symbol = NODE_PSYMBOL("distribution");
 
     NODE_SET_PROTOTYPE_METHOD(t, "addServer", AddServer);
     NODE_SET_PROTOTYPE_METHOD(t, "_get", _Get);
@@ -83,6 +84,9 @@ class Connection : EventEmitter {
     NODE_SET_PROTOTYPE_METHOD(t, "_remove", _Remove);
     NODE_SET_PROTOTYPE_METHOD(t, "_flush", _Flush);
     NODE_SET_PROTOTYPE_METHOD(t, "close", Close);
+
+    t->PrototypeTemplate()->SetAccessor(distribution_symbol,
+        DistributionGetter, DistributionSetter);
 
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
   }
@@ -99,6 +103,20 @@ class Connection : EventEmitter {
       return false;
 
     return true;
+  }
+
+  uint64_t _GetDistribution(void)
+  {
+    uint64_t data;
+
+    data = memcached_behavior_get(&memc_, MEMCACHED_BEHAVIOR_DISTRIBUTION);
+
+    return data;
+  }
+
+  void _SetDistribution(uint64_t data)
+  {
+    memcached_behavior_set(&memc_, MEMCACHED_BEHAVIOR_DISTRIBUTION, data);
   }
 
   void _Get(const char *key, int key_len)
@@ -207,8 +225,6 @@ class Connection : EventEmitter {
 
   void Close(Local<Value> exception = Local<Value>())
   {
-    HandleScope scope;
-
     ev_io_stop(EV_DEFAULT_ &read_watcher_);
     ev_io_stop(EV_DEFAULT_ &write_watcher_);
 
@@ -225,10 +241,27 @@ class Connection : EventEmitter {
   }
 
  protected:
+  static Handle<Value> DistributionGetter(Local<String> property, const AccessorInfo& info)
+  {
+    Connection *c = ObjectWrap::Unwrap<Connection>(info.This());
+    assert(c);
+    assert(property == distribution_symbol);
+
+    HandleScope scope;
+    Local<Integer> v = Integer::New(c->_GetDistribution());
+    return scope.Close(v);
+  }
+
+  static void DistributionSetter(Local<String> property, Local<Value> value, const AccessorInfo& info)
+  {
+    Connection *c = ObjectWrap::Unwrap<Connection>(info.This());
+    assert(c);
+
+    c->_SetDistribution(value->IntegerValue());
+  }
+
   static Handle<Value> New(const Arguments &args)
   {
-    HandleScope scope;
-
     Connection *c = new Connection();
     c->Wrap(args.This());
 
@@ -237,8 +270,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> AddServer(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -259,8 +290,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Get(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 1 || !args[0]->IsString()) {
       return THROW_BAD_ARGS;
     }
@@ -275,8 +304,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Set(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString() || !args[2]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -293,8 +320,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Incr(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -310,8 +335,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Decr(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -327,8 +350,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Add(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
       return THROW_BAD_ARGS;
     }
@@ -344,8 +365,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Replace(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
       return THROW_BAD_ARGS;
     }
@@ -361,8 +380,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Prepend(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
       return THROW_BAD_ARGS;
     }
@@ -378,8 +395,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Append(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
       return THROW_BAD_ARGS;
     }
@@ -395,8 +410,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Cas(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString() ||
         args[2]->IsNumber()) {
       return THROW_BAD_ARGS;
@@ -414,8 +427,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Remove(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -431,8 +442,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> _Flush(const Arguments &args)
   {
-    HandleScope scope;
-
     if (args.Length() < 1 || !args[0]->IsInt32()) {
       return THROW_BAD_ARGS;
     }
@@ -447,7 +456,6 @@ class Connection : EventEmitter {
 
   static Handle<Value> Close(const Arguments &args)
   {
-    HandleScope scope;
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     c->Close();
     return Undefined();
@@ -455,7 +463,7 @@ class Connection : EventEmitter {
 
   void Event(int revents)
   {
-    Handle<Value> result;
+    Handle<Value> args;
 
     if (revents & EV_ERROR) {
       Close();
@@ -469,36 +477,34 @@ class Connection : EventEmitter {
     if (revents & EV_WRITE) {
       switch (mval_.type) {
         case MVAL_STRING:
-          result = String::New(mval_.u.c);
+          args = String::New(mval_.u.c);
           free(mval_.u.c);
           mval_.type = (mval_type)0;
           rc = (memcached_return_t)-1;
           break;
         case MVAL_LONG:
-          result = Integer::New(mval_.u.l);
+          args = Integer::New(mval_.u.l);
           mval_.u.l = 0;
           mval_.type = (mval_type)0;
           rc = (memcached_return_t)-1;
           break;
         case MVAL_BOOL:
-          result = Boolean::New(mval_.u.b);
+          args = Boolean::New(mval_.u.b);
           mval_.u.b = 0;
           mval_.type = (mval_type)0;
           rc = (memcached_return_t)-1;
           break;
         default:
-          result = Exception::Error(String::New(memcached_strerror(NULL, rc)));
+          args = Exception::Error(String::New(memcached_strerror(NULL, rc)));
       }
 
       ev_io_stop(EV_DEFAULT_ &write_watcher_);
-      Emit(result_symbol, 1, &result);
+      Emit(result_symbol, 1, &args);
       Emit(ready_symbol, 0, NULL);
     }
   }
 
   Connection() : node::EventEmitter() {
-    HandleScope scope;
-
     memcached_create(&memc_);
     rc = (memcached_return_t)-1;
     mval_.type = (mval_type)0;
@@ -525,10 +531,10 @@ class Connection : EventEmitter {
     else
       server = memcached_generate_hash(&memc_, key, key_len);
 
-    if (memc_.hosts[server].fd == -1)
+    if (memc_.servers[server].fd == -1)
       memcached_version(&memc_);
 
-    fd = memc_.hosts[server].fd;
+    fd = memc_.servers[server].fd;
 
     ev_io_set(&read_watcher_, fd, EV_READ);
     ev_io_set(&write_watcher_, fd, EV_WRITE);
@@ -545,8 +551,6 @@ class Connection : EventEmitter {
 extern "C" void
 init(Handle<Object> target)
 {
-  HandleScope scope;
-
   NODE_DEFINE_CONSTANT(target, MEMC_GET);
   NODE_DEFINE_CONSTANT(target, MEMC_SET);
   NODE_DEFINE_CONSTANT(target, MEMC_INCR);
