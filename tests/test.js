@@ -18,7 +18,7 @@ t.get('test', function(err, data) {
 });
 
 sys.puts(t.distribution);
-t.distribution = memcache.Dist_Type.RANDOM;
+t.distribution = memcache.RANDOM;
 sys.puts(t.distribution);
 t.set('test', '123', 20, function(err, data) {
   t.get('test', function(err1, data1) {
