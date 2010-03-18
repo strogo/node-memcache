@@ -49,9 +49,9 @@ class Connection : EventEmitter {
     NODE_SET_PROTOTYPE_METHOD(t, "get", get);
     NODE_SET_PROTOTYPE_METHOD(t, "set", set);
     NODE_SET_PROTOTYPE_METHOD(t, "incr", incr);
-    NODE_SET_PROTOTYPE_METHOD(t, "_cas", _Cas);
-    NODE_SET_PROTOTYPE_METHOD(t, "_remove", _Remove);
-    NODE_SET_PROTOTYPE_METHOD(t, "_flush", _Flush);
+    NODE_SET_PROTOTYPE_METHOD(t, "cas", cas);
+    NODE_SET_PROTOTYPE_METHOD(t, "delete", remove);
+    NODE_SET_PROTOTYPE_METHOD(t, "flush", flush);
 
     t->PrototypeTemplate()->SetAccessor(distribution_symbol,
         DistributionGetter, DistributionSetter);
@@ -71,39 +71,6 @@ class Connection : EventEmitter {
 
     return true;
   }
-
-  /*
-  void _Cas(const char *key, int key_len, const char *value, int value_len,
-      uint64_t cas_arg)
-  {
-    memcached_attach_fd(key, key_len);
-    rc = memcached_cas(&memc_, key, key_len, value, value_len, 0, 0, cas_arg);
-    if (rc == MEMCACHED_SUCCESS) {
-      mval_.type = MVAL_BOOL;
-      mval_.u.b = 1;
-    }
-  }
-
-  void _Remove(const char *key, size_t key_len, time_t expiration = 0)
-  {
-    memcached_attach_fd(key, key_len);
-    rc = memcached_delete(&memc_, key, key_len, expiration);
-    if (rc == MEMCACHED_SUCCESS) {
-      mval_.type = MVAL_BOOL;
-      mval_.u.b = 1;
-    }
-  }
-
-  void _Flush(time_t expiration)
-  {
-    memcached_attach_fd(NULL, 0);
-    rc = memcached_flush(&memc_, expiration);
-    if (rc == MEMCACHED_SUCCESS) {
-      mval_.type = MVAL_BOOL;
-      mval_.u.b = 1;
-    }
-  }
-  */
 
  protected:
   memcached_st memc_;
@@ -225,7 +192,7 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
 
     struct get_request *get_req = (struct get_request*)
-      calloc(1, sizeof(struct get_request) + key.length());
+      calloc(1, sizeof(struct get_request));
 
     if (!get_req) {
       V8::LowMemoryNotification();
@@ -340,7 +307,7 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
 
     struct set_request *set_req = (struct set_request*)
-      calloc(1, sizeof(struct set_request) + key.length() + content.length());
+      calloc(1, sizeof(struct set_request));
 
     if (!set_req) {
       V8::LowMemoryNotification();
@@ -446,7 +413,7 @@ class Connection : EventEmitter {
     Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
 
     struct incr_request *incr_req = (struct incr_request*)
-      calloc(1, sizeof(struct incr_request) + key.length());
+      calloc(1, sizeof(struct incr_request));
 
     if (!incr_req) {
       V8::LowMemoryNotification();
@@ -469,42 +436,234 @@ class Connection : EventEmitter {
     return Undefined();
   }
 
-  static Handle<Value> _Cas(const Arguments &args)
+  struct cas_request {
+    Persistent<Function> cb;
+    Connection *c;
+    _type type;
+    char *key;
+    char *content;
+    size_t key_len;
+    size_t content_len;
+    time_t expiration;
+    uint64_t cas;
+  };
+
+  static int EIO_Cas(eio_req *req)
   {
-    if (args.Length() < 3 || !args[0]->IsString() || !args[1]->IsString() ||
-        args[2]->IsNumber()) {
+    struct cas_request *cas_req = (struct cas_request*)(req->data);
+    memcached_return rc;
+    uint64_t flags;
+
+    rc = memcached_cas(&cas_req->c->memc_, cas_req->key, cas_req->key_len, cas_req->content, 
+        cas_req->content_len, cas_req->expiration, 0, cas_req->cas);
+
+    req->result = rc;
+
+    return 0;
+  }
+
+  static Handle<Value> cas(const Arguments &args)
+  {
+    if (args.Length() < 5 || !args[0]->IsString() || !args[1]->IsString() ||
+        !args[2]->IsInt32() || !args[3]->IsNumber() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
 
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    String::Utf8Value value(args[1]->ToString());
-    uint64_t cas_arg = args[2]->IntegerValue();
+    String::Utf8Value content(args[1]->ToString());
+    uint32_t expiration = args[2]->Int32Value();
+    uint64_t cas_arg = args[3]->IntegerValue();
+    Local<Function> cb = Local<Function>::Cast(args[4]);
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+
+    struct cas_request *cas_req = (struct cas_request*)
+      calloc(1, sizeof(struct cas_request));
+
+    if (!cas_req) {
+      V8::LowMemoryNotification();
+      return ThrowException(Exception::Error(
+            String::New("Could not allocate enough memory")));
+    }
+
+    cas_req->key = strndup(*key, key.length());
+    cas_req->content = strndup(*content, content.length());
+    cas_req->key_len = key.length();
+    cas_req->content_len = content.length();
+    cas_req->expiration = expiration;
+    cas_req->cas = cas;
+    cas_req->cb = Persistent<Function>::New(cb);
+    cas_req->c = c;
+
+    eio_custom(EIO_Cas, EIO_PRI_DEFAULT, EIO_AfterSet, cas_req);
+    
+    ev_ref(EV_DEFAULT_UC);
+    c->Ref();
 
     return Undefined();
   }
 
-  static Handle<Value> _Remove(const Arguments &args)
+  struct remove_request {
+    Persistent<Function> cb;
+    Connection *c;
+    char *key;
+    size_t key_len;
+    time_t expiration;
+  };
+
+  static int EIO_AfterRemove(eio_req *req) {
+    ev_unref(EV_DEFAULT_UC);
+    HandleScope scope;
+    struct remove_request *remove_req = (struct remove_request *)(req->data);
+
+    Local<Value> argv[1];
+    bool err = false;
+    if (req->result) {
+      err = true;
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+    }
+
+    TryCatch try_catch;
+
+    remove_req->cb->Call(Context::GetCurrent()->Global(), err ? 1 : 0, argv);
+
+    if (try_catch.HasCaught()) {
+      FatalException(try_catch);
+    }
+
+    remove_req->c->Emit(ready_symbol, 0, NULL);
+    remove_req->cb.Dispose();
+
+    free(remove_req->key);
+    free(remove_req);
+
+    remove_req->c->Unref();
+
+    return 0;
+  }
+
+  static int EIO_Remove(eio_req *req)
   {
-    if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
+    struct remove_request *remove_req = (struct remove_request*)(req->data);
+    memcached_return rc;
+    uint64_t flags;
+
+    rc = memcached_delete(&remove_req->c->memc_, remove_req->key,
+        remove_req->key_len, remove_req->expiration);
+    req->result = rc;
+
+    return 0;
+  }
+
+  static Handle<Value> remove(const Arguments &args)
+  {
+    if (args.Length() < 3 || !args[0]->IsString() ||
+        !args[1]->IsInt32() || !args[2]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
 
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     String::Utf8Value key(args[0]->ToString());
-    time_t expiration = args[1]->Int32Value();
+    uint32_t expiration = args[1]->Int32Value();
+    Local<Function> cb = Local<Function>::Cast(args[2]);
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+
+    struct remove_request *remove_req = (struct remove_request*)
+      calloc(1, sizeof(struct remove_request));
+
+    if (!remove_req) {
+      V8::LowMemoryNotification();
+      return ThrowException(Exception::Error(
+            String::New("Could not allocate enough memory")));
+    }
+
+    remove_req->key = strndup(*key, key.length());
+    remove_req->key_len = key.length();
+    remove_req->expiration = expiration;
+    remove_req->cb = Persistent<Function>::New(cb);
+    remove_req->c = c;
+
+    eio_custom(EIO_Remove, EIO_PRI_DEFAULT, EIO_AfterRemove, remove_req);
+
+    ev_ref(EV_DEFAULT_UC);
+    c->Ref();
 
     return Undefined();
   }
 
-  static Handle<Value> _Flush(const Arguments &args)
+  struct flush_request {
+    Persistent<Function> cb;
+    Connection *c;
+    time_t expiration;
+  };
+
+  static int EIO_AfterFlush(eio_req *req) {
+    ev_unref(EV_DEFAULT_UC);
+    HandleScope scope;
+    struct flush_request *flush_req = (struct flush_request *)(req->data);
+
+    Local<Value> argv[1];
+    bool err = false;
+    if (req->result) {
+      err = true;
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+    }
+
+    TryCatch try_catch;
+
+    flush_req->cb->Call(Context::GetCurrent()->Global(), err ? 1 : 0, argv);
+
+    if (try_catch.HasCaught()) {
+      FatalException(try_catch);
+    }
+
+    flush_req->c->Emit(ready_symbol, 0, NULL);
+    flush_req->cb.Dispose();
+
+    free(flush_req);
+
+    flush_req->c->Unref();
+
+    return 0;
+  }
+
+  static int EIO_Flush(eio_req *req)
   {
-    if (args.Length() < 1 || !args[0]->IsInt32()) {
+    struct flush_request *flush_req = (struct flush_request*)(req->data);
+    memcached_return rc;
+    uint64_t flags;
+
+    rc = memcached_flush(&flush_req->c->memc_, flush_req->expiration);
+    req->result = rc;
+
+    return 0;
+  }
+
+  static Handle<Value> flush(const Arguments &args)
+  {
+    if (args.Length() < 2 || !args[0]->IsInt32() || !args[1]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
 
-    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
     time_t expiration = args[0]->Int32Value();
+    Local<Function> cb = Local<Function>::Cast(args[1]);
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+
+    struct flush_request *flush_req = (struct flush_request*)
+      calloc(1, sizeof(struct flush_request));
+
+    if (!flush_req) {
+      V8::LowMemoryNotification();
+      return ThrowException(Exception::Error(
+            String::New("Could not allocate enough memory")));
+    }
+
+    flush_req->expiration = expiration;
+    flush_req->cb = Persistent<Function>::New(cb);
+    flush_req->c = c;
+
+    eio_custom(EIO_Flush, EIO_PRI_DEFAULT, EIO_AfterFlush, flush_req);
+
+    ev_ref(EV_DEFAULT_UC);
+    c->Ref();
 
     return Undefined();
   }
