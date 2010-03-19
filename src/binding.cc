@@ -225,7 +225,7 @@ class Connection : EventEmitter {
             String::New("Could not allocate enough memory")));
     }
 
-    get_req->key = strndup(*key, key.length());
+    get_req->key = strdup(*key);
     get_req->key_len = key.length();
     get_req->cb = Persistent<Function>::New(cb);
     get_req->c = c;
@@ -345,8 +345,8 @@ class Connection : EventEmitter {
     }
 
     set_req->type = type;
-    set_req->key = strndup(*key, key.length());
-    set_req->content = strndup(*content, content.length());
+    set_req->key = strdup(*key);
+    set_req->content = strdup(*content);
     set_req->key_len = key.length();
     set_req->content_len = content.length();
     set_req->expiration = expiration;
@@ -450,7 +450,7 @@ class Connection : EventEmitter {
     }
 
     incr_req->type = type;
-    incr_req->key = strndup(*key, key.length());
+    incr_req->key = strdup(*key);
     incr_req->key_len = key.length();
     incr_req->offset = offset;
     incr_req->cb = Persistent<Function>::New(cb);
@@ -512,8 +512,8 @@ class Connection : EventEmitter {
             String::New("Could not allocate enough memory")));
     }
 
-    cas_req->key = strndup(*key, key.length());
-    cas_req->content = strndup(*content, content.length());
+    cas_req->key = strdup(*key);
+    cas_req->content = strdup(*content);
     cas_req->key_len = key.length();
     cas_req->content_len = content.length();
     cas_req->expiration = expiration;
@@ -601,7 +601,7 @@ class Connection : EventEmitter {
             String::New("Could not allocate enough memory")));
     }
 
-    remove_req->key = strndup(*key, key.length());
+    remove_req->key = strdup(*key);
     remove_req->key_len = key.length();
     remove_req->expiration = expiration;
     remove_req->cb = Persistent<Function>::New(cb);
