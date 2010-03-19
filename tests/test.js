@@ -29,3 +29,4 @@ c.get('test', function(err, result) {
     sys.puts(result);
   }
 });
+//sys.puts('sync: ' + c.get('get'));

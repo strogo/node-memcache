@@ -10,7 +10,7 @@
 #include <libmemcached/memcached.h>
 
 #define DEBUGMODE 1
-#define pdebug(...) do {if(DEBUGMODE)printf("%s", __VA_ARGS__);} while (0)
+#define pdebug(...) do {if(DEBUGMODE)printf(__VA_ARGS__);} while (0)
 #define THROW_BAD_ARGS \
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
@@ -46,6 +46,7 @@ class Connection : EventEmitter {
 
     NODE_SET_PROTOTYPE_METHOD(t, "addServer", addServer);
     NODE_SET_PROTOTYPE_METHOD(t, "get", get);
+    NODE_SET_PROTOTYPE_METHOD(t, "getSync", getSync);
     NODE_SET_PROTOTYPE_METHOD(t, "set", set);
     NODE_SET_PROTOTYPE_METHOD(t, "incr", incr);
     NODE_SET_PROTOTYPE_METHOD(t, "cas", cas);
@@ -142,7 +143,7 @@ class Connection : EventEmitter {
     } else {
       argv[0] = Local<Value>::New(Undefined());
       argv[1] = Local<Value>::New(String::New((const char*)get_req->content,
-            static_cast<int>get_req->content_len));
+            static_cast<int>(get_req->content_len)));
     }
 
     TryCatch try_catch;
@@ -174,6 +175,34 @@ class Connection : EventEmitter {
     req->result = rc;
 
     return 0;
+  }
+
+  static Handle<Value> getSync(const Arguments &args) {
+    HandleScope scope;
+    memcached_return rc;
+    char *value;
+    size_t value_len;
+    uint32_t flags;
+    Local<Value> ret;
+
+    if (args.Length() < 1 || !args[0]->IsString()) {
+      pdebug("%d\n", args.Length());
+      return THROW_BAD_ARGS;
+    }
+
+    String::Utf8Value key(args[0]->ToString());
+    Connection *c = ObjectWrap::Unwrap<Connection>(args.This());
+
+    value = memcached_get(&c->memc_, *key, key.length(), &value_len,
+        &flags, &rc);
+
+    if (value_len > 0) {
+      ret = String::New(value, value_len);
+      free(value);
+      return scope.Close(ret);
+    }
+
+    return Undefined();
   }
 
   static Handle<Value> get(const Arguments &args) {
@@ -488,7 +517,7 @@ class Connection : EventEmitter {
     cas_req->key_len = key.length();
     cas_req->content_len = content.length();
     cas_req->expiration = expiration;
-    cas_req->cas = cas;
+    cas_req->cas = cas_arg;
     cas_req->cb = Persistent<Function>::New(cb);
     cas_req->c = c;
 
