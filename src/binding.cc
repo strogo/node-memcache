@@ -10,7 +10,7 @@
 #include <libmemcached/memcached.h>
 
 #define DEBUGMODE 1
-#define pdebug(...) do{if(DEBUGMODE)printf(__VA_ARGS__);}while(0)
+#define pdebug(...) do {if(DEBUGMODE)printf("%s", __VA_ARGS__);} while (0)
 #define THROW_BAD_ARGS \
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
@@ -33,8 +33,7 @@ static Persistent<String> distribution_symbol;
 class Connection : EventEmitter {
  public:
   static void
-  Initialize(Handle<Object> target)
-  {
+  Initialize(Handle<Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
@@ -59,10 +58,9 @@ class Connection : EventEmitter {
     target->Set(String::NewSymbol("Connection"), t->GetFunction());
   }
 
-  bool addServer(const char *hostname, int port)
-  {
+  bool addServer(const char *hostname, int port) {
     memcached_return rc;
-   
+
     rc = memcached_server_add(&memc_, hostname, port);
     if (rc != MEMCACHED_SUCCESS)
       return false;
@@ -75,8 +73,8 @@ class Connection : EventEmitter {
  protected:
   memcached_st memc_;
 
-  static Handle<Value> DistributionGetter(Local<String> property, const AccessorInfo& info)
-  {
+  static Handle<Value> DistributionGetter(Local<String> property,
+      const AccessorInfo& info) {
     HandleScope scope;
     uint64_t data;
 
@@ -89,24 +87,23 @@ class Connection : EventEmitter {
     return scope.Close(v);
   }
 
-  static void DistributionSetter(Local<String> property, Local<Value> value, const AccessorInfo& info)
-  {
+  static void DistributionSetter(Local<String> property, Local<Value> value,
+      const AccessorInfo& info) {
     Connection *c = ObjectWrap::Unwrap<Connection>(info.This());
     assert(c);
 
-    memcached_behavior_set(&c->memc_, MEMCACHED_BEHAVIOR_DISTRIBUTION, value->IntegerValue());
+    memcached_behavior_set(&c->memc_, MEMCACHED_BEHAVIOR_DISTRIBUTION,
+        value->IntegerValue());
   }
 
-  static Handle<Value> New(const Arguments &args)
-  {
+  static Handle<Value> New(const Arguments &args) {
     HandleScope scope;
     Connection *c = new Connection();
     c->Wrap(args.This());
     return args.This();
   }
 
-  static Handle<Value> addServer(const Arguments &args)
-  {
+  static Handle<Value> addServer(const Arguments &args) {
     HandleScope scope;
 
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsInt32()) {
@@ -131,8 +128,7 @@ class Connection : EventEmitter {
     size_t content_len;
   };
 
-  static int EIO_AfterGet(eio_req *req)
-  {
+  static int EIO_AfterGet(eio_req *req) {
     ev_unref(EV_DEFAULT_UC);
     HandleScope scope;
     struct get_request *get_req = (struct get_request *)(req->data);
@@ -141,10 +137,12 @@ class Connection : EventEmitter {
     bool err = false;
     if (req->result) {
       err = true;
-      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL,
+              (memcached_return)req->result)));
     } else {
       argv[0] = Local<Value>::New(Undefined());
-      argv[1] = Local<Value>::New(String::New((const char*)get_req->content, (int)get_req->content_len));
+      argv[1] = Local<Value>::New(String::New((const char*)get_req->content,
+            static_cast<int>get_req->content_len));
     }
 
     TryCatch try_catch;
@@ -166,21 +164,19 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static int EIO_Get(eio_req *req)
-  {
+  static int EIO_Get(eio_req *req) {
     struct get_request *get_req = (struct get_request*)(req->data);
     memcached_return rc;
     uint32_t flags;
 
-    get_req->content = memcached_get(&get_req->c->memc_, get_req->key, get_req->key_len,
-        &get_req->content_len, &flags, &rc);
+    get_req->content = memcached_get(&get_req->c->memc_, get_req->key,
+        get_req->key_len, &get_req->content_len, &flags, &rc);
     req->result = rc;
 
     return 0;
   }
 
-  static Handle<Value> get(const Arguments &args)
-  {
+  static Handle<Value> get(const Arguments &args) {
     HandleScope scope;
 
     if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsFunction()) {
@@ -233,7 +229,8 @@ class Connection : EventEmitter {
     bool err = false;
     if (req->result) {
       err = true;
-      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL,
+              (memcached_return)req->result)));
     }
 
     TryCatch try_catch;
@@ -256,32 +253,36 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static int EIO_Set(eio_req *req)
-  {
+  static int EIO_Set(eio_req *req) {
     struct set_request *set_req = (struct set_request*)(req->data);
     memcached_return rc;
     uint64_t flags;
 
-    switch(set_req->type) {
+    switch (set_req->type) {
       case MEMC_SET:
-        rc = memcached_set(&set_req->c->memc_, set_req->key, set_req->key_len, set_req->content,
-            set_req->content_len, set_req->expiration, 0);
+        rc = memcached_set(&set_req->c->memc_, set_req->key,
+            set_req->key_len, set_req->content, set_req->content_len,
+            set_req->expiration, 0);
         break;
       case MEMC_ADD:
-        rc = memcached_add(&set_req->c->memc_, set_req->key, set_req->key_len, set_req->content,
-            set_req->content_len, set_req->expiration, 0);
+        rc = memcached_add(&set_req->c->memc_, set_req->key,
+            set_req->key_len, set_req->content, set_req->content_len,
+            set_req->expiration, 0);
         break;
       case MEMC_REPLACE:
-        rc = memcached_replace(&set_req->c->memc_, set_req->key, set_req->key_len, set_req->content,
-            set_req->content_len, set_req->expiration, 0);
+        rc = memcached_replace(&set_req->c->memc_, set_req->key,
+            set_req->key_len, set_req->content, set_req->content_len,
+            set_req->expiration, 0);
         break;
       case MEMC_APPEND:
-        rc = memcached_append(&set_req->c->memc_, set_req->key, set_req->key_len, set_req->content,
-            set_req->content_len, set_req->expiration, 0);
+        rc = memcached_append(&set_req->c->memc_, set_req->key,
+            set_req->key_len, set_req->content, set_req->content_len,
+            set_req->expiration, 0);
         break;
       case MEMC_PREPEND:
-        rc = memcached_prepend(&set_req->c->memc_, set_req->key, set_req->key_len, set_req->content,
-            set_req->content_len, set_req->expiration, 0);
+        rc = memcached_prepend(&set_req->c->memc_, set_req->key,
+            set_req->key_len, set_req->content, set_req->content_len,
+            set_req->expiration, 0);
         break;
       default:
         rc = (memcached_return)0;
@@ -292,8 +293,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static Handle<Value> set(const Arguments &args)
-  {
+  static Handle<Value> set(const Arguments &args) {
     if (args.Length() < 5 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsString() || !args[3]->IsInt32() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -351,7 +351,8 @@ class Connection : EventEmitter {
     bool err = false;
     if (req->result) {
       err = true;
-      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL,
+              (memcached_return)req->result)));
     } else {
       argv[0] = Local<Value>::New(Undefined());
       argv[1] = Local<Value>::New(Integer::New(incr_req->value));
@@ -376,12 +377,11 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static int EIO_Incr(eio_req *req)
-  {
+  static int EIO_Incr(eio_req *req) {
     struct incr_request *incr_req = (struct incr_request*)(req->data);
     memcached_return rc;
 
-    switch(incr_req->type) {
+    switch (incr_req->type) {
       case MEMC_INCR:
         rc = memcached_increment(&incr_req->c->memc_, incr_req->key,
             incr_req->key_len, incr_req->offset, &incr_req->value);
@@ -399,8 +399,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static Handle<Value> incr(const Arguments &args)
-  {
+  static Handle<Value> incr(const Arguments &args) {
     if (args.Length() < 4 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -429,7 +428,7 @@ class Connection : EventEmitter {
     incr_req->c = c;
 
     eio_custom(EIO_Incr, EIO_PRI_DEFAULT, EIO_AfterIncr, incr_req);
-    
+
     ev_ref(EV_DEFAULT_UC);
     c->Ref();
 
@@ -448,22 +447,21 @@ class Connection : EventEmitter {
     uint64_t cas;
   };
 
-  static int EIO_Cas(eio_req *req)
-  {
+  static int EIO_Cas(eio_req *req) {
     struct cas_request *cas_req = (struct cas_request*)(req->data);
     memcached_return rc;
     uint64_t flags;
 
-    rc = memcached_cas(&cas_req->c->memc_, cas_req->key, cas_req->key_len, cas_req->content, 
-        cas_req->content_len, cas_req->expiration, 0, cas_req->cas);
+    rc = memcached_cas(&cas_req->c->memc_, cas_req->key, cas_req->key_len,
+        cas_req->content, cas_req->content_len, cas_req->expiration, 0,
+        cas_req->cas);
 
     req->result = rc;
 
     return 0;
   }
 
-  static Handle<Value> cas(const Arguments &args)
-  {
+  static Handle<Value> cas(const Arguments &args) {
     if (args.Length() < 5 || !args[0]->IsString() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsNumber() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -495,7 +493,7 @@ class Connection : EventEmitter {
     cas_req->c = c;
 
     eio_custom(EIO_Cas, EIO_PRI_DEFAULT, EIO_AfterSet, cas_req);
-    
+
     ev_ref(EV_DEFAULT_UC);
     c->Ref();
 
@@ -519,7 +517,8 @@ class Connection : EventEmitter {
     bool err = false;
     if (req->result) {
       err = true;
-      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL,
+              (memcached_return)req->result)));
     }
 
     TryCatch try_catch;
@@ -541,8 +540,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static int EIO_Remove(eio_req *req)
-  {
+  static int EIO_Remove(eio_req *req) {
     struct remove_request *remove_req = (struct remove_request*)(req->data);
     memcached_return rc;
     uint64_t flags;
@@ -554,8 +552,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static Handle<Value> remove(const Arguments &args)
-  {
+  static Handle<Value> remove(const Arguments &args) {
     if (args.Length() < 3 || !args[0]->IsString() ||
         !args[1]->IsInt32() || !args[2]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -604,7 +601,8 @@ class Connection : EventEmitter {
     bool err = false;
     if (req->result) {
       err = true;
-      argv[0] = Exception::Error(String::New(memcached_strerror(NULL, (memcached_return)req->result)));
+      argv[0] = Exception::Error(String::New(memcached_strerror(NULL,
+              (memcached_return)req->result)));
     }
 
     TryCatch try_catch;
@@ -625,8 +623,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static int EIO_Flush(eio_req *req)
-  {
+  static int EIO_Flush(eio_req *req) {
     struct flush_request *flush_req = (struct flush_request*)(req->data);
     memcached_return rc;
     uint64_t flags;
@@ -637,8 +634,7 @@ class Connection : EventEmitter {
     return 0;
   }
 
-  static Handle<Value> flush(const Arguments &args)
-  {
+  static Handle<Value> flush(const Arguments &args) {
     if (args.Length() < 2 || !args[0]->IsInt32() || !args[1]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
@@ -675,8 +671,7 @@ class Connection : EventEmitter {
   operator memcached_st() const { return memc_; }
 
  private:
-  void memcached_attach_fd(const char *key, int key_len)
-  {
+  void memcached_attach_fd(const char *key, int key_len) {
     int server, fd;
 
     if (key == NULL || key_len == 0)
@@ -692,8 +687,7 @@ class Connection : EventEmitter {
 };
 
 extern "C" void
-init(Handle<Object> target)
-{
+init(Handle<Object> target) {
   NODE_DEFINE_CONSTANT(target, MEMC_SET);
   NODE_DEFINE_CONSTANT(target, MEMC_ADD);
   NODE_DEFINE_CONSTANT(target, MEMC_REPLACE);
