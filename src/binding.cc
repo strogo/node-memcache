@@ -323,6 +323,8 @@ class Connection : EventEmitter {
   }
 
   static Handle<Value> set(const Arguments &args) {
+    HandleScope scope;
+    
     if (args.Length() < 5 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsString() || !args[3]->IsInt32() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -429,6 +431,8 @@ class Connection : EventEmitter {
   }
 
   static Handle<Value> incr(const Arguments &args) {
+    HandleScope scope;
+    
     if (args.Length() < 4 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -491,6 +495,8 @@ class Connection : EventEmitter {
   }
 
   static Handle<Value> cas(const Arguments &args) {
+    HandleScope scope;
+    
     if (args.Length() < 5 || !args[0]->IsString() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsNumber() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -582,6 +588,8 @@ class Connection : EventEmitter {
   }
 
   static Handle<Value> remove(const Arguments &args) {
+    HandleScope scope;
+    
     if (args.Length() < 3 || !args[0]->IsString() ||
         !args[1]->IsInt32() || !args[2]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -664,6 +672,8 @@ class Connection : EventEmitter {
   }
 
   static Handle<Value> flush(const Arguments &args) {
+    HandleScope scope;
+    
     if (args.Length() < 2 || !args[0]->IsInt32() || !args[1]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
@@ -698,21 +708,6 @@ class Connection : EventEmitter {
   }
 
   operator memcached_st() const { return memc_; }
-
- private:
-  void memcached_attach_fd(const char *key, int key_len) {
-    int server, fd;
-
-    if (key == NULL || key_len == 0)
-      server = memc_.number_of_hosts - 1;
-    else
-      server = memcached_generate_hash(&memc_, key, key_len);
-
-    if (memc_.servers[server].fd == -1)
-      memcached_version(&memc_);
-
-    fd = memc_.servers[server].fd;
-  }
 };
 
 extern "C" void
