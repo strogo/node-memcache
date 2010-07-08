@@ -285,7 +285,6 @@ class Connection : EventEmitter {
   static int EIO_Set(eio_req *req) {
     struct set_request *set_req = (struct set_request*)(req->data);
     memcached_return rc;
-    uint64_t flags;
 
     switch (set_req->type) {
       case MEMC_SET:
@@ -483,7 +482,6 @@ class Connection : EventEmitter {
   static int EIO_Cas(eio_req *req) {
     struct cas_request *cas_req = (struct cas_request*)(req->data);
     memcached_return rc;
-    uint64_t flags;
 
     rc = memcached_cas(&cas_req->c->memc_, cas_req->key, cas_req->key_len,
         cas_req->content, cas_req->content_len, cas_req->expiration, 0,
@@ -578,7 +576,6 @@ class Connection : EventEmitter {
   static int EIO_Remove(eio_req *req) {
     struct remove_request *remove_req = (struct remove_request*)(req->data);
     memcached_return rc;
-    uint64_t flags;
 
     rc = memcached_delete(&remove_req->c->memc_, remove_req->key,
         remove_req->key_len, remove_req->expiration);
@@ -663,7 +660,6 @@ class Connection : EventEmitter {
   static int EIO_Flush(eio_req *req) {
     struct flush_request *flush_req = (struct flush_request*)(req->data);
     memcached_return rc;
-    uint64_t flags;
 
     rc = memcached_flush(&flush_req->c->memc_, flush_req->expiration);
     req->result = rc;

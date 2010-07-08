@@ -11,6 +11,10 @@ def configure(conf):
   conf.check_tool("compiler_cxx")
   conf.check_tool("node_addon")
   pkg_config = conf.find_program('pkg-config', var='PKG_CONFIG', mandatory=True)
+  tmp_version = popen("%s libmemcached --modversion" % pkg_config).readline().strip()
+  libmemcached_version = float(tmp_version)
+  if libmemcached_version < 0.42:
+    conf.fatal("should use libmemcached 0.42 or later version")
   libmemcached_libdir = popen("%s libmemcached --libs-only-L" % pkg_config).readline().strip().replace("-L", "")
   libmemcached_includedir = popen("%s libmemcached --cflags-only-I" % pkg_config).readline().strip().replace("-I", "")
   conf.env.append_value("LIBPATH_MEMCACHED", libmemcached_libdir)
@@ -22,3 +26,4 @@ def build(bld):
   obj.target = "memcache-impl"
   obj.source = "src/binding.cc"
   obj.uselib = "MEMCACHED"
+  obj.cxxflags = ["-g", "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-Wall"]
