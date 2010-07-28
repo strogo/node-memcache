@@ -1,0 +1,23 @@
+
+How to build on debian:
+
+1: upgrade to squeeze
+2: apt-get install build-essential
+3: apt-get install pkg-config
+4: apt-get install libmemcached-dev
+5: apt-get install nodejs-dev
+6: git clone git://github.com/vanillahsu/node-memcache.git
+7: cd node-memcache; nodejs-waf configure; nodejs-waf
+8: nodejs test/test.js
+9: done.
+
+
+How to build on FreeBSD:
+
+1: upgrade your ports tree.
+2: cd /usr/ports/database/libmemcached; make install clean;
+3: cd /usr/ports/www/node; make install clean;
+4: git clone git://github.com/vanillahsu/node-memcache.git
+5: cd node-memcache; node-waf configure; node-waf
+6: node test/test.js
+7: done.
