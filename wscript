@@ -1,4 +1,5 @@
 from os import popen
+import Utils
 
 srcdir = "."
 blddir = "build"
@@ -33,3 +34,6 @@ def build(bld):
   obj.source = "src/binding.cc"
   obj.uselib = "MEMCACHED"
   obj.cxxflags = ["-g", "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-Wall"]
+
+def lint(lnt):
+  Utils.exec_command('cpplint.py ./src/*.cc')

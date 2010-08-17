@@ -10,7 +10,7 @@
 #include <libmemcached/memcached.h>
 
 #define DEBUGMODE 1
-#define pdebug(...) do {if(DEBUGMODE)printf(__VA_ARGS__);} while (0)
+#define pdebug(...) do {if(DEBUGMODE)printf(__VA_ARGS__);} while (0) //NOLINT
 #define THROW_BAD_ARGS \
   v8::ThrowException(v8::Exception::TypeError(v8::String::New("Bad arguments")))
 
@@ -24,8 +24,8 @@ typedef enum {
   MEMC_DECR
 } _type;
 
-using namespace v8;
-using namespace node;
+using namespace v8; //NOLINT
+using namespace node; //NOLINT
 
 static Persistent<String> ready_symbol;
 static Persistent<String> distribution_symbol;
@@ -323,7 +323,7 @@ class Connection : EventEmitter {
 
   static Handle<Value> set(const Arguments &args) {
     HandleScope scope;
-    
+
     if (args.Length() < 5 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsString() || !args[3]->IsInt32() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -431,7 +431,7 @@ class Connection : EventEmitter {
 
   static Handle<Value> incr(const Arguments &args) {
     HandleScope scope;
-    
+
     if (args.Length() < 4 || !args[0]->IsInt32() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -494,7 +494,7 @@ class Connection : EventEmitter {
 
   static Handle<Value> cas(const Arguments &args) {
     HandleScope scope;
-    
+
     if (args.Length() < 5 || !args[0]->IsString() || !args[1]->IsString() ||
         !args[2]->IsInt32() || !args[3]->IsNumber() || !args[4]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -586,7 +586,7 @@ class Connection : EventEmitter {
 
   static Handle<Value> remove(const Arguments &args) {
     HandleScope scope;
-    
+
     if (args.Length() < 3 || !args[0]->IsString() ||
         !args[1]->IsInt32() || !args[2]->IsFunction()) {
       return THROW_BAD_ARGS;
@@ -669,7 +669,7 @@ class Connection : EventEmitter {
 
   static Handle<Value> flush(const Arguments &args) {
     HandleScope scope;
-    
+
     if (args.Length() < 2 || !args[0]->IsInt32() || !args[1]->IsFunction()) {
       return THROW_BAD_ARGS;
     }
